@@ -4,26 +4,22 @@ from threading import Thread
 from flask import Flask
 import requests
 
-# 1️⃣ خادم Flask يعمل في Thread منفصل تماماً
-app = Flask('')
+# 1️⃣ إنشاء سيرفر Flask خفيف للمحافظة على المجانية في Render
+app = Flask(__name__)
 
 
 @app.route('/')
-def home():
-  return 'Bot is running 24/7!'
+def health_check():
+  return 'Bot is Alive!', 200
 
 
-def run_flask():
+def start_server():
   port = int(os.environ.get('PORT', 10000))
-  app.run(host='0.0.0.0', port=port)
+  # تشغيل السيرفر بدون debug لتفادي الحظر
+  app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# تشغيل السيرفر في الخلفية
-flask_thread = Thread(target=run_flask)
-flask_thread.daemon = True
-flask_thread.start()
-
-# 2️⃣ إعدادات التليجرام
+# 2️⃣ بيانات التليجرام
 TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_icsaBbomwcdhqqp0'
 CHAT_ID = '1015963752'
 
@@ -73,20 +69,27 @@ def check_token(token_address):
     print(f'❌ خطأ فحص: {e}')
 
 
-# 3️⃣ الحلقة الرئيسية للبوت
+# 3️⃣ نقطة الانطلاق الرئيسية
 if __name__ == '__main__':
+  # تشغيل السيرفر في Thread جانبي
+  server_thread = Thread(target=start_server)
+  server_thread.daemon = True
+  server_thread.start()
+
+  # إرسال رسالة الترحيب فوراً للتليجرام
   welcome = (
-      '🤖 *تم تشغيل بوت رادار الميم كوينز بنجاح!*\nالبوت شغال الآن أونلاين 24/7'
-      ' في السحابة.'
+      '🤖 *تم تشغيل بوت رادار الميم كوينز بنجاح!*\nالبوت شغال مجاناً 24/7 على'
+      ' Render.'
   )
   send_telegram_alert(welcome)
   print(welcome)
 
+  # حلقة فحص العملات
   tokens = ['4vXNhA6ncbx8usZ14CfxkYeQKdaQYgrLfJXNywcVpump']
 
   while True:
-    for t in tokens:
-      check_token(t)
+    for token in tokens:
+      check_token(token)
       time.sleep(10)
     print('\n😴 انتظار الدورة القادمة (60 ثانية)...')
     time.sleep(60)
