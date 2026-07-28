@@ -4,7 +4,7 @@ from threading import Thread
 from flask import Flask
 import requests
 
-# 1️⃣ إنشاء سيرفر Flask خفيف للمحافظة على المجانية في Render
+# 1️⃣ خادم Flask للمحافظة على مجانية Render
 app = Flask(__name__)
 
 
@@ -15,25 +15,27 @@ def health_check():
 
 def start_server():
   port = int(os.environ.get('PORT', 10000))
-  # تشغيل السيرفر بدون debug لتفادي الحظر
   app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# 2️⃣ بيانات التليجرام
-TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_icsaBbomwcdhqqp0'
+# 2️⃣ بيانات التليجرام المحدثة بالكامل
+TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
 
 def send_telegram_alert(message):
+  """إرسال إشعار فوري للتليجرام"""
   url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
   payload = {'chat_id': CHAT_ID, 'text': message, 'parse_mode': 'Markdown'}
   try:
-    requests.post(url, json=payload, timeout=10)
+    res = requests.post(url, json=payload, timeout=10)
+    print(f'📤 حالة إرسال التليجرام: {res.status_code}')
   except Exception as e:
     print(f'❌ خطأ تليجرام: {e}')
 
 
 def check_token(token_address):
+  """فحص العملة وتنبيه التليجرام"""
   print(f'\n🔍 جاري فحص العملة: {token_address}')
   try:
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_address}'
@@ -69,27 +71,27 @@ def check_token(token_address):
     print(f'❌ خطأ فحص: {e}')
 
 
-# 3️⃣ نقطة الانطلاق الرئيسية
+# 3️⃣ التشغيل المباشر
 if __name__ == '__main__':
-  # تشغيل السيرفر في Thread جانبي
+  # تشغيل سيرفر الويب في الخلفية
   server_thread = Thread(target=start_server)
   server_thread.daemon = True
   server_thread.start()
 
-  # إرسال رسالة الترحيب فوراً للتليجرام
+  # إرسال رسالة الترحيب الأولى
   welcome = (
-      '🤖 *تم تشغيل بوت رادار الميم كوينز بنجاح!*\nالبوت شغال مجاناً 24/7 على'
-      ' Render.'
+      '🤖 *تم تشغيل بوت رادار الميم كوينز بنجاح!*\nالبوت شغال الآن أونلاين 24/7'
+      ' في السحابة.'
   )
   send_telegram_alert(welcome)
   print(welcome)
 
-  # حلقة فحص العملات
+  # قائمة العملات المبدئية للفحص
   tokens = ['4vXNhA6ncbx8usZ14CfxkYeQKdaQYgrLfJXNywcVpump']
 
   while True:
-    for token in tokens:
-      check_token(token)
+    for t in tokens:
+      check_token(t)
       time.sleep(10)
     print('\n😴 انتظار الدورة القادمة (60 ثانية)...')
     time.sleep(60)
