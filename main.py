@@ -4,7 +4,7 @@ from threading import Thread
 from flask import Flask
 import requests
 
-# 1️⃣ خادم Flask للمحافظة على مجانية Render
+# 1️⃣ سيرفر الويب للمحافظة على مجانية Render
 app = Flask(__name__)
 
 
@@ -18,24 +18,28 @@ def start_server():
   app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# 2️⃣ بيانات التليجرام المحدثة بالكامل
+# 2️⃣ إعدادات التليجرام
 TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
+# ذاكرة لتخزين العملات المسجلة لمنع تكرار التنبيه
+alerted_tokens = set()
+
 
 def send_telegram_alert(message):
-  """إرسال إشعار فوري للتليجرام"""
   url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
   payload = {'chat_id': CHAT_ID, 'text': message, 'parse_mode': 'Markdown'}
   try:
-    res = requests.post(url, json=payload, timeout=10)
-    print(f'📤 حالة إرسال التليجرام: {res.status_code}')
+    requests.post(url, json=payload, timeout=10)
   except Exception as e:
     print(f'❌ خطأ تليجرام: {e}')
 
 
 def check_token(token_address):
-  """فحص العملة وتنبيه التليجرام"""
+  # التأكد من أن العملة لم يُرسل عنها تنبيه سابقاً
+  if token_address in alerted_tokens:
+    return
+
   print(f'\n🔍 جاري فحص العملة: {token_address}')
   try:
     url = f'https://api.dexscreener.com/latest/dex/tokens/{token_address}'
@@ -66,32 +70,24 @@ def check_token(token_address):
             f'🌐 [DexScreener Link]({pair.get("url")})'
         )
         send_telegram_alert(msg)
-        print(f'✅ تم إرسال إشعار العملة {symbol} إلى التليجرام!')
+        alerted_tokens.add(token_address)  # حفظ العملة في الذاكرة
+        print(f'✅ تم إرسال إشعار العملة {symbol} لمرة واحدة فقط!')
   except Exception as e:
     print(f'❌ خطأ فحص: {e}')
 
 
-# 3️⃣ التشغيل المباشر
+# 3️⃣ تشغيل البوت
 if __name__ == '__main__':
-  # تشغيل سيرفر الويب في الخلفية
+  # تشغيل خادم Flask في الخلفية
   server_thread = Thread(target=start_server)
   server_thread.daemon = True
   server_thread.start()
 
-  # إرسال رسالة الترحيب الأولى
-  welcome = (
-      '🤖 *تم تشغيل بوت رادار الميم كوينز بنجاح!*\nالبوت شغال الآن أونلاين 24/7'
-      ' في السحابة.'
-  )
-  send_telegram_alert(welcome)
-  print(welcome)
-
-  # قائمة العملات المبدئية للفحص
+  # قائمة العقود المراد رصدها
   tokens = ['4vXNhA6ncbx8usZ14CfxkYeQKdaQYgrLfJXNywcVpump']
 
   while True:
     for t in tokens:
       check_token(t)
       time.sleep(10)
-    print('\n😴 انتظار الدورة القادمة (60 ثانية)...')
     time.sleep(60)
