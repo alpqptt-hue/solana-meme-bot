@@ -5,13 +5,12 @@ from threading import Thread
 from flask import Flask
 import requests
 
-# 1️⃣ خادم Web لـ Render
 app = Flask(__name__)
 
 
 @app.route('/')
 def health_check():
-  return 'Meme Radar Auto Scanner is Running!', 200
+  return 'Scanner Active!', 200
 
 
 def start_server():
@@ -19,11 +18,9 @@ def start_server():
   app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# 2️⃣ إعدادات التليجرام
 TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
-# المحفظة الوهمية (1000 ريال = 266.67 دولار)
 USD_TO_SAR = 3.75
 initial_balance_sar = 1000.0
 balance_usd = initial_balance_sar / USD_TO_SAR
@@ -32,9 +29,9 @@ active_trades = {}
 trade_history = []
 alerted_tokens = set()
 
-# شروط الفلترة المتقدمة (مستوحاة من البوت المحترف)
-MIN_MARKET_CAP_USD = 10000.0  # القيمة السوقية لا تقل عن 10 آلاف $
-MIN_LIQUIDITY_USD = 3000.0  # السيولة لا تقل عن 3 آلاف $
+# شروط مرنة وسريعة للصيد
+MIN_MARKET_CAP_USD = 5000.0  # القيمة السوقية ابتداءً من 5 آلاف $
+MIN_LIQUIDITY_USD = 1500.0  # السيولة ابتداءً من 1.5 ألف $
 
 
 def send_telegram_alert(message):
@@ -52,9 +49,9 @@ def send_telegram_alert(message):
 
 
 def scan_solana_trending():
-  """جلب أحدث عملات سولانا النشطة تلقائياً من DexScreener"""
+  """جلب أحدث عملات سولانا النشطة"""
   try:
-    url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
+    url = 'https://api.dexscreener.com/latest/dex/search?q=sol'
     res = requests.get(
         url,
         headers={
@@ -66,7 +63,6 @@ def scan_solana_trending():
     )
     if res.status_code == 200:
       pairs = res.json().get('pairs', [])
-      # تصفية أزواج شبكة سولانا فقط
       sol_pairs = [
           p for p in pairs if p.get('chainId') == 'solana' and p.get('priceUsd')
       ]
@@ -77,7 +73,6 @@ def scan_solana_trending():
 
 
 def execute_paper_buy(pair_data):
-  """محاكاة الشراء للعملة المكتشفة"""
   global balance_usd
   token_address = pair_data.get('baseToken', {}).get('address')
   symbol = pair_data.get('baseToken', {}).get('symbol', 'UNKNOWN')
@@ -89,7 +84,6 @@ def execute_paper_buy(pair_data):
   if price_usd <= 0 or not token_address:
     return
 
-  # مبلغ دخول الصفقة (10% من المحفظة)
   trade_amount_usd = balance_usd * 0.10
   if trade_amount_usd < 5:
     return
@@ -118,7 +112,6 @@ def execute_paper_buy(pair_data):
 
 
 def update_and_check_trades():
-  """متابعة الصفقات القائمة وإغلاقها"""
   global balance_usd
   for token_address, trade in list(active_trades.items()):
     try:
@@ -136,15 +129,14 @@ def update_and_check_trades():
               (current_price - entry_price) / entry_price
           ) * 100
 
-          # جني أرباح (+40%) أو وقف خسارة (-15%)
-          if price_change_pct >= 40.0 or price_change_pct <= -15.0:
+          if price_change_pct >= 30.0 or price_change_pct <= -15.0:
             return_usd = trade['tokens'] * current_price
             pnl_usd = return_usd - trade['invested_usd']
             balance_usd += return_usd
 
             status = (
-                '🎉 جني أرباح (+40%)'
-                if price_change_pct >= 40
+                '🎉 جني أرباح (+30%)'
+                if price_change_pct >= 30
                 else '🛑 وقف خسارة (-15%)'
             )
 
@@ -168,7 +160,6 @@ def update_and_check_trades():
 
 
 def send_hourly_report():
-  """التقرير الساعي"""
   total_equity_usd = balance_usd + sum(
       t['invested_usd'] for t in active_trades.values()
   )
@@ -197,15 +188,14 @@ if __name__ == '__main__':
   server_thread.start()
 
   welcome = (
-      '🔥 *تم تشغيل ماسح الميم كوينز التلقائي المطور!*\n'
-      'البوت يبحث الآن تلقائياً عن أفضل عملات Solana النشطة مع الفوليوم العالي.'
+      '🔥 *تم تحديث الماسح لزيادة النشاط والصيدات!*\n'
+      'البوت يبحث الآن عن الفرص بمرونة عالية.'
   )
   send_telegram_alert(welcome)
 
   last_report_time = time.time()
 
   while True:
-    # 1. مسح تريندات سولانا تلقائياً
     trending_pairs = scan_solana_trending()
 
     for pair in trending_pairs:
@@ -214,27 +204,22 @@ if __name__ == '__main__':
       liq = pair.get('liquidity', {}).get('usd', 0)
       vol_24h = pair.get('volume', {}).get('h24', 0)
 
-      # فحص الفلاتر:
-      # 1. لم يتنبه عنها سابقاً
-      # 2. القيمة السوقية والسيولة فوق الحد الأدنى
-      # 3. حجم التداول عالي جداً (الفوليوم أعلى من القيمة السوقية أو قريب منها)
+      # شرط أكثر مرونة لالتقاط العملات النشطة بسرعة
       if (
           token_addr
           and token_addr not in alerted_tokens
           and mcap >= MIN_MARKET_CAP_USD
           and liq >= MIN_LIQUIDITY_USD
-          and vol_24h > (mcap * 0.5)
-      ):  # الفوليوم أكثر من نصف الماركيت كاب
+          and vol_24h > (mcap * 0.2)
+      ):
         alerted_tokens.add(token_addr)
         execute_paper_buy(pair)
         time.sleep(3)
 
-    # 2. متابعة الصفقات القائمة
     update_and_check_trades()
 
-    # 3. التقرير الساعي
     if time.time() - last_report_time >= 3600:
       send_hourly_report()
       last_report_time = time.time()
 
-    time.sleep(30)
+    time.sleep(20)
