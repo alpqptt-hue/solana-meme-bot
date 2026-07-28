@@ -15,10 +15,13 @@ def run():
   app.run(host='0.0.0.0', port=port)
 
 
-# تشغيل خادم Flask في الخلفية بدون ما يوقّف البوت
+# تشغيل خادم Flask في مسار فرعي
 t = Thread(target=run)
 t.daemon = True
 t.start()
+
+# ----- انتبه: احذف دالة keep_alive() القديمة واستدعاءها تماماً -----
+
 import requests
 import time
 
