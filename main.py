@@ -5,12 +5,13 @@ from threading import Thread
 from flask import Flask
 import requests
 
+# 1️⃣ خادم Flask لإبقاء الخدمة شغالة 24/7 على Render
 app = Flask(__name__)
 
 
 @app.route('/')
 def health_check():
-  return 'Scanner Active!', 200
+  return 'Solana Meme Radar Bot is Running 24/7!', 200
 
 
 def start_server():
@@ -18,20 +19,19 @@ def start_server():
   app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
+# 2️⃣ إعدادات التليجرام الخاصة ببوت الميم كوينز (MyMemeRadarBot)
+TELEGRAM_BOT_TOKEN = '8147132039:AAG4A1mR6Lp5Y-L-23xT0-Pz2kS2zX-Xn-E'
 CHAT_ID = '1015963752'
 
+# 3️⃣ إدارة المحفظة الوهمية للميم كوينز (1,000 ريال = 266.67 دولار)
 USD_TO_SAR = 3.75
-initial_balance_sar = 1000.0
-balance_usd = initial_balance_sar / USD_TO_SAR
+INITIAL_BALANCE_SAR = 1000.0
+INITIAL_BALANCE_USD = INITIAL_BALANCE_SAR / USD_TO_SAR
 
+balance_usd = INITIAL_BALANCE_USD
 active_trades = {}
 trade_history = []
-alerted_tokens = set()
-
-# شروط مرنة وسريعة للصيد
-MIN_MARKET_CAP_USD = 5000.0  # القيمة السوقية ابتداءً من 5 آلاف $
-MIN_LIQUIDITY_USD = 1500.0  # السيولة ابتداءً من 1.5 ألف $
+MAX_CONCURRENT_TRADES = 3
 
 
 def send_telegram_alert(message):
@@ -48,138 +48,137 @@ def send_telegram_alert(message):
     print(f'❌ خطأ تليجرام: {e}')
 
 
-def scan_solana_trending():
-  """جلب أحدث عملات سولانا النشطة"""
+def scan_solana_meme_coins():
+  """رصد أحدث الميم كوينز وأكثرها زخماً على شبكة Solana عبر DexScreener"""
   try:
-    url = 'https://api.dexscreener.com/latest/dex/search?q=sol'
-    res = requests.get(
-        url,
-        headers={
-            'User-Agent': (
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)'
-            )
-        },
-        timeout=10,
-    )
+    url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
+    res = requests.get(url, timeout=10)
     if res.status_code == 200:
       pairs = res.json().get('pairs', [])
-      sol_pairs = [
-          p for p in pairs if p.get('chainId') == 'solana' and p.get('priceUsd')
-      ]
-      return sol_pairs
+      meme_opportunities = []
+
+      for pair in pairs[:30]:
+        if pair.get('chainId') != 'solana':
+          continue
+
+        volume_24h = float(pair.get('volume', {}).get('h24', 0) or 0)
+        liquidity_usd = float(pair.get('liquidity', {}).get('usd', 0) or 0)
+        price_change_m5 = float(
+            pair.get('priceChange', {}).get('m5', 0) or 0
+        )
+
+        # مرونة أعلى لصيد صفقات سريعة على الميم كوينز
+        if liquidity_usd >= 10000 and volume_24h >= 20000:
+          meme_opportunities.append({
+              'symbol': pair.get('baseToken', {}).get('symbol', 'UNKNOWN'),
+              'price': float(pair.get('priceUsd', 0) or 0),
+              'address': pair.get('pairAddress', ''),
+              'volume': volume_24h,
+          })
+      return meme_opportunities
   except Exception as e:
-    print(f'❌ خطأ مسح السوق: {e}')
+    print(f'❌ خطأ جلب الميم كوينز: {e}')
   return []
 
 
-def execute_paper_buy(pair_data):
+def check_and_execute_meme_trades():
+  """تنفيذ صفقات الميم كوينز الشديدة السريعة"""
   global balance_usd
-  token_address = pair_data.get('baseToken', {}).get('address')
-  symbol = pair_data.get('baseToken', {}).get('symbol', 'UNKNOWN')
-  price_usd = float(pair_data.get('priceUsd', 0) or 0)
-  mcap = pair_data.get('fdv', 0) or pair_data.get('marketCap', 0)
-  vol_24h = pair_data.get('volume', {}).get('h24', 0)
-  dex_url = pair_data.get('url', '')
 
-  if price_usd <= 0 or not token_address:
+  if len(active_trades) >= MAX_CONCURRENT_TRADES:
     return
 
-  trade_amount_usd = balance_usd * 0.10
-  if trade_amount_usd < 5:
-    return
+  opportunities = scan_solana_meme_coins()
 
-  balance_usd -= trade_amount_usd
-  tokens_bought = trade_amount_usd / price_usd
+  for opp in opportunities:
+    symbol = opp['symbol']
+    price = opp['price']
 
-  active_trades[token_address] = {
-      'symbol': symbol,
-      'entry_price': price_usd,
-      'tokens': tokens_bought,
-      'invested_usd': trade_amount_usd,
-      'entry_time': datetime.now(),
-  }
+    if price <= 0 or symbol in active_trades:
+      continue
 
-  msg = (
-      f'🚀 *صيدة جديدة واردة من الماسح التلقائي!*\n\n'
-      f'🪙 *العملة:* `${symbol}`\n'
-      f'📊 *القيمة السوقية:* ${mcap:,.0f}\n'
-      f'🔥 *الفوليوم (24h):* ${vol_24h:,.0f}\n'
-      f'💵 *مبلغ الشراء الوهمي:* ${trade_amount_usd:.2f} ({trade_amount_usd * USD_TO_SAR:.1f} ريال)\n'
-      f'📄 *العقد:* `{token_address}`\n\n'
-      f'🌐 [DexScreener Link]({dex_url})'
-  )
-  send_telegram_alert(msg)
+    trade_amount_usd = balance_usd * 0.20
+    if trade_amount_usd < 5:
+      continue
+
+    balance_usd -= trade_amount_usd
+    tokens = trade_amount_usd / price
+
+    tp_price = price * 1.03  # هدف +3%
+    sl_price = price * 0.985  # وقف خسارة -1.5%
+
+    active_trades[symbol] = {
+        'entry_price': price,
+        'tokens': tokens,
+        'invested_usd': trade_amount_usd,
+        'tp': tp_price,
+        'sl': sl_price,
+        'entry_time': datetime.now(),
+    }
+
+    msg = (
+        f'🔥 *دخول صفقة ميم كوين جديدة (Solana Radar)*\n'
+        f'-----------------------------------\n'
+        f'🪙 *العملة:* `${symbol}`\n'
+        f'💵 *سعر الشراء:* `${price:,.6f}`\n'
+        f'💰 *المبلغ المستثمر:* `${trade_amount_usd:.2f}` ({trade_amount_usd * USD_TO_SAR:.1f} ريال)\n'
+        f'🎯 *جني الأرباح (TP):* `${tp_price:,.6f}` (+3.0%)\n'
+        f'🛑 *وقف الخسارة (SL):* `${sl_price:,.6f}` (-1.5%)\n'
+        f'💼 *الرصيد المتبقي:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
+    )
+    send_telegram_alert(msg)
+
+    if len(active_trades) >= MAX_CONCURRENT_TRADES:
+      break
 
 
-def update_and_check_trades():
+def update_meme_trades():
+  """متابعة صفقات الميم كوينز وحساب الأرباح"""
   global balance_usd
-  for token_address, trade in list(active_trades.items()):
+
+  for symbol, trade in list(active_trades.items()):
     try:
-      url = f'https://api.dexscreener.com/latest/dex/tokens/{token_address}'
-      res = requests.get(url, timeout=10)
+      url = f'https://api.dexscreener.com/latest/dex/search?q={symbol}'
+      res = requests.get(url, timeout=5)
       if res.status_code == 200:
         pairs = res.json().get('pairs', [])
-        if pairs:
-          current_price = float(pairs[0].get('priceUsd', 0) or 0)
-          if current_price <= 0:
-            continue
+        if not pairs:
+          continue
+        current_price = float(pairs[0].get('priceUsd', 0) or 0)
+        if current_price <= 0:
+          continue
 
-          entry_price = trade['entry_price']
-          price_change_pct = (
-              (current_price - entry_price) / entry_price
-          ) * 100
+        if current_price >= trade['tp']:
+          return_usd = trade['tokens'] * current_price
+          pnl_usd = return_usd - trade['invested_usd']
+          balance_usd += return_usd
 
-          if price_change_pct >= 30.0 or price_change_pct <= -15.0:
-            return_usd = trade['tokens'] * current_price
-            pnl_usd = return_usd - trade['invested_usd']
-            balance_usd += return_usd
+          msg = (
+              f'🚀 *تم تفجير الهدف في الميم كوين! (+3%)*\n'
+              f'🪙 *العملة:* `${symbol}`\n'
+              f'💵 *سعر الخروج:* `${current_price:,.6f}`\n'
+              f'💰 *الربح المحقق:* `+${pnl_usd:.2f}` (`+{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
+              f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
+          )
+          send_telegram_alert(msg)
+          del active_trades[symbol]
 
-            status = (
-                '🎉 جني أرباح (+30%)'
-                if price_change_pct >= 30
-                else '🛑 وقف خسارة (-15%)'
-            )
+        elif current_price <= trade['sl']:
+          return_usd = trade['tokens'] * current_price
+          pnl_usd = return_usd - trade['invested_usd']
+          balance_usd += return_usd
 
-            msg = (
-                f'{status}\n\n'
-                f'🪙 *العملة:* `${trade["symbol"]}`\n'
-                f'📊 *نسبة التغير:* `{price_change_pct:+.2f}%`\n'
-                f'💰 *الربح/الخسارة:* ${pnl_usd:+.2f} ({pnl_usd * USD_TO_SAR:+.1f} ريال)\n'
-                f'💼 *رصيد المحفظة:* ${balance_usd:.2f} ({balance_usd * USD_TO_SAR:.1f} ريال)'
-            )
-            send_telegram_alert(msg)
-
-            trade_history.append({
-                'symbol': trade['symbol'],
-                'pnl_usd': pnl_usd,
-                'change_pct': price_change_pct,
-            })
-            del active_trades[token_address]
+          msg = (
+              f'🛑 *ضرب وقف الخسارة للميم كوين! (-1.5%)*\n'
+              f'🪙 *العملة:* `${symbol}`\n'
+              f'💵 *سعر الخروج:* `${current_price:,.6f}`\n'
+              f'📉 *الخسارة:* `${pnl_usd:.2f}` (`{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
+              f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
+          )
+          send_telegram_alert(msg)
+          del active_trades[symbol]
     except Exception as e:
-      print(f'❌ خطأ تحديث صفقة: {e}')
-
-
-def send_hourly_report():
-  total_equity_usd = balance_usd + sum(
-      t['invested_usd'] for t in active_trades.values()
-  )
-  total_equity_sar = total_equity_usd * USD_TO_SAR
-  profit_loss_sar = total_equity_sar - initial_balance_sar
-  profit_loss_pct = (
-      (total_equity_sar - initial_balance_sar) / initial_balance_sar
-  ) * 100
-
-  report = (
-      f'📊 *التقرير الساعي للماسح التلقائي*\n'
-      f'-----------------------------------\n'
-      f'💰 *إجمالي المحفظة:* {total_equity_sar:.2f} ريال (${total_equity_usd:.2f})\n'
-      f'📈 *الأرباح/الخسائر:* {profit_loss_sar:+.2f} ريال ({profit_loss_pct:+.2f}%)\n'
-      f'🔄 *الصفقات المفتوحة:* {len(active_trades)}\n'
-      f'✅ *الصفقات المغلقة:* {len(trade_history)}\n'
-      f'-----------------------------------\n'
-      f'📡 *الماسح يعمل 24/7 ويصيد من التريندات*'
-  )
-  send_telegram_alert(report)
+      print(f'❌ خطأ تحديث {symbol}: {e}')
 
 
 if __name__ == '__main__':
@@ -187,39 +186,14 @@ if __name__ == '__main__':
   server_thread.daemon = True
   server_thread.start()
 
-  welcome = (
-      '🔥 *تم تحديث الماسح لزيادة النشاط والصيدات!*\n'
-      'البوت يبحث الآن عن الفرص بمرونة عالية.'
+  welcome_msg = (
+      '🎯 *تم تشغيل بوت صيد الميم كوينز (Solana Radar) بنجاح!*\n'
+      '💰 *رأس المال المبدئي:* 1,000 ريال سعودي ($266.67 USD)\n'
+      '⚡ جاري فحص شبكة سولانا ودخول الصفقات تلقائياً...'
   )
-  send_telegram_alert(welcome)
-
-  last_report_time = time.time()
+  send_telegram_alert(welcome_msg)
 
   while True:
-    trending_pairs = scan_solana_trending()
-
-    for pair in trending_pairs:
-      token_addr = pair.get('baseToken', {}).get('address')
-      mcap = pair.get('fdv', 0) or pair.get('marketCap', 0)
-      liq = pair.get('liquidity', {}).get('usd', 0)
-      vol_24h = pair.get('volume', {}).get('h24', 0)
-
-      # شرط أكثر مرونة لالتقاط العملات النشطة بسرعة
-      if (
-          token_addr
-          and token_addr not in alerted_tokens
-          and mcap >= MIN_MARKET_CAP_USD
-          and liq >= MIN_LIQUIDITY_USD
-          and vol_24h > (mcap * 0.2)
-      ):
-        alerted_tokens.add(token_addr)
-        execute_paper_buy(pair)
-        time.sleep(3)
-
-    update_and_check_trades()
-
-    if time.time() - last_report_time >= 3600:
-      send_hourly_report()
-      last_report_time = time.time()
-
-    time.sleep(20)
+    check_and_execute_meme_trades()
+    update_meme_trades()
+    time.sleep(15)
