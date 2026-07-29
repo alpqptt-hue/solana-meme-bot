@@ -204,7 +204,7 @@ if __name__ == '__main__':
   # 2. تشغيل معالج رسائل التليجرام في الخلفية
   tg_thread = Thread(target=handle_telegram_updates)
   tg_thread.daemon = True
-  tg_thread.start()
+  tg_thread.start() 
 
   # 3. الحلقة الرئيسية لرصد وتداول الميم كوينز
   while True:
