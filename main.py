@@ -19,7 +19,7 @@ def start_server():
   app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# 2️⃣ إعدادات التليجرام
+# 2️⃣ إعدادات التليجرام (التوكن الجديد)
 TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
@@ -49,7 +49,7 @@ def send_telegram_alert(message, target_chat_id=None):
 
 
 def scan_solana_meme_coins():
-  """رصد الميم كوينز على شبكة Solana عبر DexScreener"""
+  """رصد الميم كوينز الحقيقية على شبكة Solana مع استبعاد العملة الأم SOL"""
   try:
     url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
     res = requests.get(url, timeout=10)
@@ -57,16 +57,23 @@ def scan_solana_meme_coins():
       pairs = res.json().get('pairs', [])
       meme_opportunities = []
 
-      for pair in pairs[:30]:
+      for pair in pairs[:40]:
         if pair.get('chainId') != 'solana':
+          continue
+
+        symbol = pair.get('baseToken', {}).get('symbol', 'UNKNOWN').upper()
+
+        # استبعاد عملة سولانا الأم والعملات المستقرة لمنع الخسائر المتكررة
+        if symbol in ['SOL', 'USDC', 'USDT', 'WBTC']:
           continue
 
         volume_24h = float(pair.get('volume', {}).get('h24', 0) or 0)
         liquidity_usd = float(pair.get('liquidity', {}).get('usd', 0) or 0)
 
-        if liquidity_usd >= 8000 and volume_24h >= 15000:
+        # شروط مرنة وأمنة لميم كوينز صاعدة
+        if liquidity_usd >= 5000 and volume_24h >= 10000:
           meme_opportunities.append({
-              'symbol': pair.get('baseToken', {}).get('symbol', 'UNKNOWN'),
+              'symbol': symbol,
               'price': float(pair.get('priceUsd', 0) or 0),
           })
       return meme_opportunities
@@ -78,7 +85,6 @@ def scan_solana_meme_coins():
 def check_and_execute_meme_trades():
   global balance_usd
 
-  # طباعة حالة الفحص في سجلات Render لتتأكد أنه شغال لحظة بلحظة
   print(
       f'[{datetime.now().strftime("%H:%M:%S")}] 🔍 Scanning Solana Meme'
       ' Coins...'
