@@ -33,10 +33,11 @@ active_trades = {}
 MAX_CONCURRENT_TRADES = 3
 
 
-def send_telegram_alert(message):
+def send_telegram_alert(message, target_chat_id=None):
+  destination_id = target_chat_id if target_chat_id else CHAT_ID
   url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
   payload = {
-      'chat_id': CHAT_ID,
+      'chat_id': destination_id,
       'text': message,
       'parse_mode': 'Markdown',
       'disable_web_page_preview': True,
@@ -76,6 +77,12 @@ def scan_solana_meme_coins():
 
 def check_and_execute_meme_trades():
   global balance_usd
+
+  # طباعة حالة الفحص في سجلات Render لتتأكد أنه شغال لحظة بلحظة
+  print(
+      f'[{datetime.now().strftime("%H:%M:%S")}] 🔍 Scanning Solana Meme'
+      ' Coins...'
+  )
 
   if len(active_trades) >= MAX_CONCURRENT_TRADES:
     return
@@ -170,8 +177,10 @@ def update_meme_trades():
 
 
 def handle_telegram_updates():
-  """الاستماع لأوامر المستخدم مثل /start"""
+  """الاستماع لأوامر التليجرام والرد على المستخدم مباشرة"""
   last_update_id = 0
+  global CHAT_ID
+
   while True:
     try:
       url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5'
@@ -182,14 +191,17 @@ def handle_telegram_updates():
           last_update_id = update['update_id']
           message = update.get('message', {})
           text = message.get('text', '')
+          user_chat_id = message.get('chat', {}).get('id')
 
-          if text == '/start':
+          if text == '/start' and user_chat_id:
+            CHAT_ID = str(user_chat_id)
             welcome_msg = (
                 '🎯 *أهلاً بك! تم تفعيل بوت صيد الميم كوينز (Solana Radar)*\n'
+                f'🆔 *معرف الحساب المقترن:* `{user_chat_id}`\n'
                 '💰 *رأس المال:* 1,000 ريال سعودي ($266.67 USD)\n'
-                '⚡ السيرفر شغال الآن 24/7 وستصلك الصفقات فور رصدها تلقائياً!'
+                '⚡ السيرفر شغال الآن 24/7 وستصلك الصفقات هنا فور رصدها تلقائياً!'
             )
-            send_telegram_alert(welcome_msg)
+            send_telegram_alert(welcome_msg, target_chat_id=user_chat_id)
     except Exception as e:
       pass
     time.sleep(3)
@@ -204,7 +216,7 @@ if __name__ == '__main__':
   # 2. تشغيل معالج رسائل التليجرام في الخلفية
   tg_thread = Thread(target=handle_telegram_updates)
   tg_thread.daemon = True
-  tg_thread.start() 
+  tg_thread.start()
 
   # 3. الحلقة الرئيسية لرصد وتداول الميم كوينز
   while True:
