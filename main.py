@@ -20,7 +20,7 @@ def start_server():
 
 
 # 2️⃣ إعدادات التليجرام
-TELEGRAM_BOT_TOKEN = '8147132039:AAG4A1mR6Lp5Y-L-23xT0-Pz2kS2zX-Xn-E'
+TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
 # 3️⃣ إدارة المحفظة الوهمية للميم كوينز
