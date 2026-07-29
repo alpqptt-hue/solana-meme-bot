@@ -19,18 +19,17 @@ def start_server():
   app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# 2️⃣ إعدادات التليجرام الخاصة ببوت الميم كوينز (MyMemeRadarBot)
+# 2️⃣ إعدادات التليجرام
 TELEGRAM_BOT_TOKEN = '8147132039:AAG4A1mR6Lp5Y-L-23xT0-Pz2kS2zX-Xn-E'
 CHAT_ID = '1015963752'
 
-# 3️⃣ إدارة المحفظة الوهمية للميم كوينز (1,000 ريال = 266.67 دولار)
+# 3️⃣ إدارة المحفظة الوهمية للميم كوينز
 USD_TO_SAR = 3.75
 INITIAL_BALANCE_SAR = 1000.0
 INITIAL_BALANCE_USD = INITIAL_BALANCE_SAR / USD_TO_SAR
 
 balance_usd = INITIAL_BALANCE_USD
 active_trades = {}
-trade_history = []
 MAX_CONCURRENT_TRADES = 3
 
 
@@ -49,7 +48,7 @@ def send_telegram_alert(message):
 
 
 def scan_solana_meme_coins():
-  """رصد أحدث الميم كوينز وأكثرها زخماً على شبكة Solana عبر DexScreener"""
+  """رصد الميم كوينز على شبكة Solana عبر DexScreener"""
   try:
     url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
     res = requests.get(url, timeout=10)
@@ -63,17 +62,11 @@ def scan_solana_meme_coins():
 
         volume_24h = float(pair.get('volume', {}).get('h24', 0) or 0)
         liquidity_usd = float(pair.get('liquidity', {}).get('usd', 0) or 0)
-        price_change_m5 = float(
-            pair.get('priceChange', {}).get('m5', 0) or 0
-        )
 
-        # مرونة أعلى لصيد صفقات سريعة على الميم كوينز
-        if liquidity_usd >= 10000 and volume_24h >= 20000:
+        if liquidity_usd >= 8000 and volume_24h >= 15000:
           meme_opportunities.append({
               'symbol': pair.get('baseToken', {}).get('symbol', 'UNKNOWN'),
               'price': float(pair.get('priceUsd', 0) or 0),
-              'address': pair.get('pairAddress', ''),
-              'volume': volume_24h,
           })
       return meme_opportunities
   except Exception as e:
@@ -82,7 +75,6 @@ def scan_solana_meme_coins():
 
 
 def check_and_execute_meme_trades():
-  """تنفيذ صفقات الميم كوينز الشديدة السريعة"""
   global balance_usd
 
   if len(active_trades) >= MAX_CONCURRENT_TRADES:
@@ -104,8 +96,8 @@ def check_and_execute_meme_trades():
     balance_usd -= trade_amount_usd
     tokens = trade_amount_usd / price
 
-    tp_price = price * 1.03  # هدف +3%
-    sl_price = price * 0.985  # وقف خسارة -1.5%
+    tp_price = price * 1.03
+    sl_price = price * 0.985
 
     active_trades[symbol] = {
         'entry_price': price,
@@ -113,16 +105,15 @@ def check_and_execute_meme_trades():
         'invested_usd': trade_amount_usd,
         'tp': tp_price,
         'sl': sl_price,
-        'entry_time': datetime.now(),
     }
 
     msg = (
-        f'🔥 *دخول صفقة ميم كوين جديدة (Solana Radar)*\n'
+        f'🔥 *صفقة ميم كوين جديدة (Solana Radar)*\n'
         f'-----------------------------------\n'
         f'🪙 *العملة:* `${symbol}`\n'
         f'💵 *سعر الشراء:* `${price:,.6f}`\n'
         f'💰 *المبلغ المستثمر:* `${trade_amount_usd:.2f}` ({trade_amount_usd * USD_TO_SAR:.1f} ريال)\n'
-        f'🎯 *جني الأرباح (TP):* `${tp_price:,.6f}` (+3.0%)\n'
+        f'🎯 *الهدف (TP):* `${tp_price:,.6f}` (+3.0%)\n'
         f'🛑 *وقف الخسارة (SL):* `${sl_price:,.6f}` (-1.5%)\n'
         f'💼 *الرصيد المتبقي:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
     )
@@ -133,7 +124,6 @@ def check_and_execute_meme_trades():
 
 
 def update_meme_trades():
-  """متابعة صفقات الميم كوينز وحساب الأرباح"""
   global balance_usd
 
   for symbol, trade in list(active_trades.items()):
@@ -154,10 +144,9 @@ def update_meme_trades():
           balance_usd += return_usd
 
           msg = (
-              f'🚀 *تم تفجير الهدف في الميم كوين! (+3%)*\n'
+              f'🚀 *تم تحقيق الهدف! (+3%)*\n'
               f'🪙 *العملة:* `${symbol}`\n'
-              f'💵 *سعر الخروج:* `${current_price:,.6f}`\n'
-              f'💰 *الربح المحقق:* `+${pnl_usd:.2f}` (`+{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
+              f'💰 *الربح:* `+${pnl_usd:.2f}` (`+{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
               f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
           )
           send_telegram_alert(msg)
@@ -169,30 +158,55 @@ def update_meme_trades():
           balance_usd += return_usd
 
           msg = (
-              f'🛑 *ضرب وقف الخسارة للميم كوين! (-1.5%)*\n'
+              f'🛑 *ضرب وقف الخسارة! (-1.5%)*\n'
               f'🪙 *العملة:* `${symbol}`\n'
-              f'💵 *سعر الخروج:* `${current_price:,.6f}`\n'
               f'📉 *الخسارة:* `${pnl_usd:.2f}` (`{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
               f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
           )
           send_telegram_alert(msg)
           del active_trades[symbol]
     except Exception as e:
-      print(f'❌ خطأ تحديث {symbol}: {e}')
+      print(f'❌ خطأ: {e}')
+
+
+def handle_telegram_updates():
+  """الاستماع لأوامر المستخدم مثل /start"""
+  last_update_id = 0
+  while True:
+    try:
+      url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5'
+      res = requests.get(url, timeout=10)
+      if res.status_code == 200:
+        updates = res.json().get('result', [])
+        for update in updates:
+          last_update_id = update['update_id']
+          message = update.get('message', {})
+          text = message.get('text', '')
+
+          if text == '/start':
+            welcome_msg = (
+                '🎯 *أهلاً بك! تم تفعيل بوت صيد الميم كوينز (Solana Radar)*\n'
+                '💰 *رأس المال:* 1,000 ريال سعودي ($266.67 USD)\n'
+                '⚡ السيرفر شغال الآن 24/7 وستصلك الصفقات فور رصدها تلقائياً!'
+            )
+            send_telegram_alert(welcome_msg)
+    except Exception as e:
+      pass
+    time.sleep(3)
 
 
 if __name__ == '__main__':
+  # 1. تشغيل سيرفر Flask
   server_thread = Thread(target=start_server)
   server_thread.daemon = True
   server_thread.start()
 
-  welcome_msg = (
-      '🎯 *تم تشغيل بوت صيد الميم كوينز (Solana Radar) بنجاح!*\n'
-      '💰 *رأس المال المبدئي:* 1,000 ريال سعودي ($266.67 USD)\n'
-      '⚡ جاري فحص شبكة سولانا ودخول الصفقات تلقائياً...'
-  )
-  send_telegram_alert(welcome_msg)
+  # 2. تشغيل معالج رسائل التليجرام في الخلفية
+  tg_thread = Thread(target=handle_telegram_updates)
+  tg_thread.daemon = True
+  tg_thread.start()
 
+  # 3. الحلقة الرئيسية لرصد وتداول الميم كوينز
   while True:
     check_and_execute_meme_trades()
     update_meme_trades()
