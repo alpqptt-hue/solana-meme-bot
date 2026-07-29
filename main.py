@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-  return 'Solana Meme Radar Bot (Smart Strategy) is Running 24/7!', 200
+  return 'Solana Sniper Meme Bot is Running 24/7!', 200
 
 
 def start_server():
@@ -49,15 +49,23 @@ def send_telegram_alert(message):
 
 
 def scan_solana_meme_coins():
-  """رصد الميم كوينز بشروط مخففة ومرنة لزيادة الفرص الناجحة"""
+  """سكان مخصص لرصد أحدث الميم كوينز الناشئة فور إطلاقها على شبكة سولانا"""
+  meme_opportunities = []
   try:
-    url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
+    # نقطة النهاية المباشرة لأحدث الأزواج المضافة حديثاً في DexScreener
+    url = 'https://api.dexscreener.com/latest/dex/tokens/solana'
     res = requests.get(url, timeout=10)
-    if res.status_code == 200:
-      pairs = res.json().get('pairs', [])
-      meme_opportunities = []
 
-      for pair in pairs[:50]:
+    # إذا لم توفر هذه نقطة النهاية نتائج مباشرة، نتحول للبحث الشامل عن سولانا لجلب أحدث الأطراف
+    if res.status_code != 200 or not res.json().get('pairs'):
+      url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
+      res = requests.get(url, timeout=10)
+
+    if res.status_code == 200:
+      data = res.json()
+      pairs = data.get('pairs', []) if isinstance(data, dict) else data
+
+      for pair in pairs:
         if pair.get('chainId') != 'solana':
           continue
 
@@ -65,7 +73,7 @@ def scan_solana_meme_coins():
         symbol = str(token_info.get('symbol', 'UNKNOWN')).upper()
         name = str(token_info.get('name', '')).upper()
 
-        # حجب العملات الكبرى
+        # حجب العملات الكبرى والوهمية
         excluded_tokens = ['SOL', 'WSOL', 'USDC', 'USDT', 'WBTC', 'ETH']
         if symbol in excluded_tokens or 'SOLANA' in name:
           continue
@@ -74,15 +82,14 @@ def scan_solana_meme_coins():
         market_cap = float(pair.get('marketCap', pair.get('fdv', 0)) or 0)
         price = float(pair.get('priceUsd', 0) or 0)
 
-        # 🎯 شروط مخففة ومرنة: قيمة سوقية بين $15K و $150K وحجم تداول مناسب
-        if 15000 <= market_cap <= 150000 and volume_24h >= 5000:
+        # 🎯 شروط مرنة لاصطياد العملات فور نزولها في بداياتها (قيمة سوقية مبكرة جداً)
+        if 5000 <= market_cap <= 120000 and price > 0:
           meme_opportunities.append(
               {'symbol': symbol, 'price': price, 'market_cap': market_cap}
           )
-      return meme_opportunities
   except Exception as e:
-    print(f'❌ خطأ جلب الميم كوينز: {e}')
-  return []
+    print(f'❌ خطأ جلب الميم كوينز الحديثة: {e}')
+  return meme_opportunities
 
 
 def check_and_execute_meme_trades():
@@ -108,8 +115,8 @@ def check_and_execute_meme_trades():
     balance_usd -= trade_amount_usd
     tokens = trade_amount_usd / price
 
-    tp_price = price * 1.05  # هدف 5%
-    sl_price = price * 0.98  # وقف خسارة 2%
+    tp_price = price * 1.08  # هدف 8% لانطلاقات البداية القوية
+    sl_price = price * 0.97  # وقف خسارة 3%
 
     active_trades[symbol] = {
         'entry_price': price,
@@ -120,14 +127,14 @@ def check_and_execute_meme_trades():
     }
 
     msg = (
-        f'🔥 *صفقة ميم كوين جديدة (شروط مرنة)*\n'
+        f'🚨 *قنص ميم كوين فور نزولها الجديد!*\n'
         f'-----------------------------------\n'
         f'🪙 *العملة:* `${symbol}`\n'
-        f'📊 *القيمة السوقية (MC):* `${market_cap:,.0f}`\n'
-        f'💵 *سعر الشراء:* `${price:,.6f}`\n'
+        f'📊 *القيمة السوقية لحظة الولادة (MC):* `${market_cap:,.0f}`\n'
+        f'💵 *سعر القنص:* `${price:,.8f}`\n'
         f'💰 *المبلغ المستثمر:* `${trade_amount_usd:.2f}` ({trade_amount_usd * USD_TO_SAR:.1f} ريال)\n'
-        f'🎯 *الهدف (TP):* `${tp_price:,.6f}` (+5.0%)\n'
-        f'🛑 *وقف الخسارة (SL):* `${sl_price:,.6f}` (-2.0%)\n'
+        f'🎯 *الهدف (TP):* `${tp_price:,.8f}` (+8.0%)\n'
+        f'🛑 *وقف الخسارة (SL):* `${sl_price:,.8f}` (-3.0%)\n'
         f'💼 *الرصيد المتبقي:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
     )
     send_telegram_alert(msg)
@@ -157,7 +164,7 @@ def update_meme_trades():
           balance_usd += return_usd
 
           msg = (
-              f'🚀 *تم تحقيق الهدف بنجاح! (+5%)*\n'
+              f'🚀 *تم تحقيق هدف القنص بنجاح! (+8%)*\n'
               f'🪙 *العملة:* `${symbol}`\n'
               f'💰 *الربح:* `+${pnl_usd:.2f}` (`+{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
               f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
@@ -172,7 +179,7 @@ def update_meme_trades():
           balance_usd += return_usd
 
           msg = (
-              f'🛑 *ضرب وقف الخسارة! (-2%)*\n'
+              f'🛑 *ضرب وقف الخسارة للميم! (-3%)*\n'
               f'🪙 *العملة:* `${symbol}`\n'
               f'📉 *الخسارة:* `${pnl_usd:.2f}` (`{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
               f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
@@ -187,7 +194,7 @@ def update_meme_trades():
 
 
 def send_hourly_report():
-  """تقرير ساعي دقيق ومحسوب لبوت الميم كوين"""
+  """تقرير ساعي دقيق ومحسوب لبوت القنص"""
   unrealized_usd = 0.0
   for symbol, trade in active_trades.items():
     try:
@@ -217,7 +224,7 @@ def send_hourly_report():
   win_rate = (wins / total_closed * 100) if total_closed > 0 else 0.0
 
   report = (
-      f'📊 *التقرير الساعي لبوت الميم كوين*\n'
+      f'📊 *التقرير الساعي لبوت قنص الميم كوين*\n'
       f'-----------------------------------\n'
       f'💰 *رأس المال الحالي:* {total_equity_sar:.2f} ريال (${total_equity_usd:.2f})\n'
       f'📈 *صافي الأرباح/الخسائر:* {pnl_sar:+.2f} ريال ({pnl_pct:+.2f}%)\n'
@@ -225,7 +232,7 @@ def send_hourly_report():
       f'✅ *إجمالي الصفقات المغلقة:* {total_closed} (ناجحة: {wins} | خاسرة: {total_closed - wins})\n'
       f'🎯 *نسبة النجاح:* {win_rate:.1f}%\n'
       f'-----------------------------------\n'
-      f'🟢 *البوت يعمل 24/7 بكامل طاقته*'
+      f'🟢 *رادار القنص اللحظي للإطلاقات الجديدة يعمل 24/7*'
   )
   send_telegram_alert(report)
 
@@ -236,9 +243,9 @@ if __name__ == 'main' or __name__ == '__main__':
   server_thread.start()
 
   welcome_msg = (
-      '🚀 *تم تشغيل بوت الميم كوين بالشروط الجديدة والتقرير الساعي!*\n'
+      '🚀 *تم تشغيل بوت قنص الميم كوين (Latest Tokens Sniper) بنجاح!*\n'
       '💰 *رأس المال المبدئي:* 1,000 ريال سعودي\n'
-      '⏰ سيصلك التقرير الساعي بانتظام الآن.'
+      '⏰ سيقنص العملات فور ولادتها ويراسلك بكل جديد.'
   )
   send_telegram_alert(welcome_msg)
 
