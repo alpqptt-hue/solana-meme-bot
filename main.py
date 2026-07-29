@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone
+import json
 import os
 from threading import Thread
 import time
@@ -11,7 +12,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-  return 'Solana Sniper Meme Bot is Running 24/7!', 200
+  return 'Solana WebSocket Sniper Meme Bot is Running 24/7!', 200
 
 
 def start_server():
@@ -23,14 +24,57 @@ def start_server():
 TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
-# 3️⃣ إدارة المحفظة الوهمية والأداء
+# 3️⃣ إدارة المحفظة والأداء وحفظ البيانات
 USD_TO_SAR = 3.75
 INITIAL_BALANCE_SAR = 1000.0
 INITIAL_BALANCE_USD = INITIAL_BALANCE_SAR / USD_TO_SAR
 
-balance_usd = INITIAL_BALANCE_USD
-active_trades = {}
-trade_history = []
+STATE_FILE = 'bot_state.json'
+
+
+def load_state():
+  """استرجاع حالة المحفظة، الصفقات، والعملات لتجنب التكرار مع تقييد الـ traded_symbols لآخر 1000 فقط"""
+  if os.path.exists(STATE_FILE):
+    try:
+      with open(STATE_FILE, 'r') as f:
+        data = json.load(f)
+        saved_symbols = data.get('traded_symbols', [])
+        if len(saved_symbols) > 1000:
+          saved_symbols = saved_symbols[-1000:]
+        return (
+            data.get('balance_usd', INITIAL_BALANCE_USD),
+            data.get('active_trades', {}),
+            data.get('trade_history', []),
+            set(saved_symbols),
+        )
+    except Exception as e:
+      print(f'⚠️ خطأ في قراءة ملف الحفظ: {e}')
+  return INITIAL_BALANCE_USD, {}, [], set()
+
+
+def save_state():
+  """حفظ الحالة بطريقة آمنة باستخدام ملف مؤقت وتحديد آخر 1000 رمز فقط"""
+  try:
+    global traded_symbols
+    if len(traded_symbols) > 1000:
+      traded_symbols = set(list(traded_symbols)[-1000:])
+
+    data = {
+        'balance_usd': balance_usd,
+        'active_trades': active_trades,
+        'trade_history': trade_history,
+        'traded_symbols': list(traded_symbols),
+    }
+
+    temp_file = 'bot_state.tmp'
+    with open(temp_file, 'w') as f:
+      json.dump(data, f)
+    os.replace(temp_file, STATE_FILE)
+  except Exception as e:
+    print(f'⚠️ خطأ في حفظ الملف: {e}')
+
+
+balance_usd, active_trades, trade_history, traded_symbols = load_state()
 MAX_CONCURRENT_TRADES = 3
 
 
@@ -49,14 +93,13 @@ def send_telegram_alert(message):
 
 
 def scan_solana_meme_coins():
-  """سكان مخصص لرصد أحدث الميم كوينز الناشئة فور إطلاقها على شبكة سولانا"""
+  """رصد الميم كوينز الجديدة من أزواج Raydium عبر DexScreener وتقييمها بنظام النقاط"""
   meme_opportunities = []
   try:
-    # نقطة النهاية المباشرة لأحدث الأزواج المضافة حديثاً في DexScreener
+    # جلب أحدث العملات المضافة على شبكة سولانا (تركز على سيولة Raydium والمنصات اللامركزية)
     url = 'https://api.dexscreener.com/latest/dex/tokens/solana'
     res = requests.get(url, timeout=10)
 
-    # إذا لم توفر هذه نقطة النهاية نتائج مباشرة، نتحول للبحث الشامل عن سولانا لجلب أحدث الأطراف
     if res.status_code != 200 or not res.json().get('pairs'):
       url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
       res = requests.get(url, timeout=10)
@@ -69,26 +112,102 @@ def scan_solana_meme_coins():
         if pair.get('chainId') != 'solana':
           continue
 
+        # التركيز على سيولة Raydium أو المجمعات النشطة
+        dex_id = str(pair.get('dexId', '')).lower()
+        if 'raydium' not in dex_id and 'orca' not in dex_id:
+          # نترك المجال مفتوحاً لكن نفضل المنصات الكبرى
+          pass
+
         token_info = pair.get('baseToken', {})
         symbol = str(token_info.get('symbol', 'UNKNOWN')).upper()
         name = str(token_info.get('name', '')).upper()
+        token_address = str(token_info.get('address', ''))
 
-        # حجب العملات الكبرى والوهمية
         excluded_tokens = ['SOL', 'WSOL', 'USDC', 'USDT', 'WBTC', 'ETH']
         if symbol in excluded_tokens or 'SOLANA' in name:
           continue
 
-        volume_24h = float(pair.get('volume', {}).get('h24', 0) or 0)
         market_cap = float(pair.get('marketCap', pair.get('fdv', 0)) or 0)
         price = float(pair.get('priceUsd', 0) or 0)
 
-        # 🎯 شروط مرنة لاصطياد العملات فور نزولها في بداياتها (قيمة سوقية مبكرة جداً)
-        if 5000 <= market_cap <= 120000 and price > 0:
+        if price <= 0:
+          continue
+
+        if not (5000 <= market_cap <= 120000):
+          continue
+
+        pair_created_at_ms = pair.get('pairCreatedAt', 0)
+        if not pair_created_at_ms:
+          continue
+
+        creation_time = datetime.fromtimestamp(
+            pair_created_at_ms / 1000.0, tz=timezone.utc
+        )
+        age_minutes = (
+            datetime.now(timezone.utc).timestamp()
+            - pair_created_at_ms / 1000.0
+        ) / 60.0
+        creation_time_str = creation_time.strftime('%Y-%m-%d %H:%M:%S')
+
+        liquidity = float(
+            pair.get('liquidity', {}).get('usd', 0) or 0
+        )
+        volume_24h = float(
+            pair.get('volume', {}).get('h24', 0) or 0
+        )
+
+        txns = pair.get('txns', {})
+        h24_txns = txns.get('h24', {})
+        buys = int(h24_txns.get('buys', 0) or 0)
+        sells = int(h24_txns.get('sells', 0) or 0)
+        total_txns = buys + sells
+
+        dex_url = str(
+            pair.get(
+                'url', f'https://dexscreener.com/solana/{token_address}'
+            )
+        )
+
+        # 🏆 نظام النقاط (Score System) الشامل
+        score = 0
+
+        if liquidity >= 10000:
+          score += 30
+
+        if volume_24h >= 20000:
+          score += 20
+
+        if age_minutes < 60:
+          score += 20
+
+        if market_cap < 50000:
+          score += 20
+
+        if buys > sells:
+          score += 10
+
+        # شرط الدخول إذا بلغ السكور 80 فأكثر
+        if score >= 80:
           meme_opportunities.append(
-              {'symbol': symbol, 'price': price, 'market_cap': market_cap}
+              {
+                  'symbol': symbol,
+                  'name': name,
+                  'address': token_address,
+                  'price': price,
+                  'market_cap': market_cap,
+                  'liquidity_usd': liquidity,
+                  'volume_h24': volume_24h,
+                  'buys': buys,
+                  'sells': sells,
+                  'txns_h24': total_txns,
+                  'age_minutes': age_minutes,
+                  'creation_time': creation_time_str,
+                  'score': score,
+                  'url': dex_url,
+              }
           )
   except Exception as e:
-    print(f'❌ خطأ جلب الميم كوينز الحديثة: {e}')
+    print(f'❌ خطأ في فحص العملات: {e}')
   return meme_opportunities
 
 
@@ -102,10 +221,21 @@ def check_and_execute_meme_trades():
 
   for opp in opportunities:
     symbol = opp['symbol']
+    name = opp['name']
+    address = opp['address']
     price = opp['price']
     market_cap = opp['market_cap']
+    liq_usd = opp['liquidity_usd']
+    vol_h24 = opp['volume_h24']
+    buys = opp['buys']
+    sells = opp['sells']
+    txns_h24 = opp['txns_h24']
+    age_minutes = opp['age_minutes']
+    creation_time = opp['creation_time']
+    score = opp['score']
+    dex_url = opp['url']
 
-    if price <= 0 or symbol in active_trades:
+    if price <= 0 or symbol in active_trades or symbol in traded_symbols:
       continue
 
     trade_amount_usd = balance_usd * 0.20
@@ -115,10 +245,12 @@ def check_and_execute_meme_trades():
     balance_usd -= trade_amount_usd
     tokens = trade_amount_usd / price
 
-    tp_price = price * 1.08  # هدف 8% لانطلاقات البداية القوية
-    sl_price = price * 0.97  # وقف خسارة 3%
+    tp_price = price * 1.08
+    sl_price = price * 0.97
 
+    # حفظ عنوان العقد (Pair Address) حصراً لتجنب تداخل الرموز المتشابهة
     active_trades[symbol] = {
+        'pair': address,
         'entry_price': price,
         'tokens': tokens,
         'invested_usd': trade_amount_usd,
@@ -126,16 +258,27 @@ def check_and_execute_meme_trades():
         'sl': sl_price,
     }
 
+    traded_symbols.add(symbol)
+    save_state()
+
     msg = (
-        f'🚨 *قنص ميم كوين فور نزولها الجديد!*\n'
+        f'🚨 *قنص ميم كوين (المرحلة الثانية - Raydium Pools)!*\n'
         f'-----------------------------------\n'
-        f'🪙 *العملة:* `${symbol}`\n'
-        f'📊 *القيمة السوقية لحظة الولادة (MC):* `${market_cap:,.0f}`\n'
+        f'🪙 *العملة:* `{symbol}` ({name})\n'
+        f'⭐ *النقاط (Score):* `{score}/100`\n'
+        f'⏱️ *وقت الإنشاء:* `{creation_time}`\n'
+        f'⏳ *عمر العملة:* `{age_minutes:.1f} دقيقة`\n'
+        f'📊 *القيمة السوقية:* `${market_cap:,.0f}`\n'
+        f'💧 *السيولة:* `${liq_usd:,.0f}`\n'
+        f'📈 *حجم التداول:* `${vol_h24:,.0f}`\n'
+        f'🛒 *المشترين:* `{buys:,}` | 🛍️ *البائعين:* `{sells:,}`\n'
         f'💵 *سعر القنص:* `${price:,.8f}`\n'
         f'💰 *المبلغ المستثمر:* `${trade_amount_usd:.2f}` ({trade_amount_usd * USD_TO_SAR:.1f} ريال)\n'
         f'🎯 *الهدف (TP):* `${tp_price:,.8f}` (+8.0%)\n'
         f'🛑 *وقف الخسارة (SL):* `${sl_price:,.8f}` (-3.0%)\n'
-        f'💼 *الرصيد المتبقي:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
+        f'🔗 *عقد الزوج:* `{address}`\n'
+        f'📈 [عرض الشارت]({dex_url})\n'
+        f'💼 *الرصيد المتبقي:* `${balance_usd:.2f}`'
     )
     send_telegram_alert(msg)
 
@@ -148,66 +291,73 @@ def update_meme_trades():
 
   for symbol, trade in list(active_trades.items()):
     try:
-      url = f'https://api.dexscreener.com/latest/dex/search?q={symbol}'
+      token_address = trade.get('pair')
+      # التحديث الفوري باستخدام عنوان العقد (Pair Address) حصراً
+      url = f'https://api.dexscreener.com/latest/dex/tokens/{token_address}'
       res = requests.get(url, timeout=5)
+
+      current_price = 0.0
       if res.status_code == 200:
-        pairs = res.json().get('pairs', [])
-        if not pairs:
-          continue
-        current_price = float(pairs[0].get('priceUsd', 0) or 0)
-        if current_price <= 0:
-          continue
+        data = res.json()
+        pairs = data.get('pairs', [])
+        if pairs:
+          current_price = float(pairs[0].get('priceUsd', 0) or 0)
 
-        if current_price >= trade['tp']:
-          return_usd = trade['tokens'] * current_price
-          pnl_usd = return_usd - trade['invested_usd']
-          balance_usd += return_usd
+      if current_price <= 0:
+        continue
 
-          msg = (
-              f'🚀 *تم تحقيق هدف القنص بنجاح! (+8%)*\n'
-              f'🪙 *العملة:* `${symbol}`\n'
-              f'💰 *الربح:* `+${pnl_usd:.2f}` (`+{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
-              f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
-          )
-          send_telegram_alert(msg)
-          trade_history.append({'symbol': symbol, 'pnl_usd': pnl_usd, 'win': True})
-          del active_trades[symbol]
+      if current_price >= trade['tp']:
+        return_usd = trade['tokens'] * current_price
+        pnl_usd = return_usd - trade['invested_usd']
+        balance_usd += return_usd
 
-        elif current_price <= trade['sl']:
-          return_usd = trade['tokens'] * current_price
-          pnl_usd = return_usd - trade['invested_usd']
-          balance_usd += return_usd
+        msg = (
+            f'🚀 *تم تحقيق الهدف بنجاح! (+8%)*\n'
+            f'🪙 *العملة:* `${symbol}`\n'
+            f'💰 *الربح:* `+${pnl_usd:.2f}` (`+{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
+            f'💼 *الرصيد الجديد:* `${balance_usd:.2f}`'
+        )
+        send_telegram_alert(msg)
+        trade_history.append({'symbol': symbol, 'pnl_usd': pnl_usd, 'win': True})
+        del active_trades[symbol]
+        save_state()
 
-          msg = (
-              f'🛑 *ضرب وقف الخسارة للميم! (-3%)*\n'
-              f'🪙 *العملة:* `${symbol}`\n'
-              f'📉 *الخسارة:* `${pnl_usd:.2f}` (`{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
-              f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
-          )
-          send_telegram_alert(msg)
-          trade_history.append(
-              {'symbol': symbol, 'pnl_usd': pnl_usd, 'win': False}
-          )
-          del active_trades[symbol]
+      elif current_price <= trade['sl']:
+        return_usd = trade['tokens'] * current_price
+        pnl_usd = return_usd - trade['invested_usd']
+        balance_usd += return_usd
+
+        msg = (
+            f'🛑 *ضرب وقف الخسارة للميم! (-3%)*\n'
+            f'🪙 *العملة:* `${symbol}`\n'
+            f'📉 *الخسارة:* `${pnl_usd:.2f}` (`{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
+            f'💼 *الرصيد الجديد:* `${balance_usd:.2f}`'
+        )
+        send_telegram_alert(msg)
+        trade_history.append(
+            {'symbol': symbol, 'pnl_usd': pnl_usd, 'win': False}
+        )
+        del active_trades[symbol]
+        save_state()
     except Exception as e:
-      print(f'❌ خطأ: {e}')
+      print(f'❌ خطأ في تحديث الصفقة: {e}')
 
 
 def send_hourly_report():
-  """تقرير ساعي دقيق ومحسوب لبوت القنص"""
   unrealized_usd = 0.0
   for symbol, trade in active_trades.items():
     try:
-      url = f'https://api.dexscreener.com/latest/dex/search?q={symbol}'
+      token_address = trade.get('pair')
+      url = f'https://api.dexscreener.com/latest/dex/tokens/{token_address}'
       res = requests.get(url, timeout=5)
+      price = 0.0
       if res.status_code == 200:
         pairs = res.json().get('pairs', [])
         if pairs:
-          unrealized_usd += trade['tokens'] * float(
-              pairs[0].get('priceUsd', 0) or 0
-          )
-        else:
-          unrealized_usd += trade['invested_usd']
+          price = float(pairs[0].get('priceUsd', 0) or 0)
+
+      if price > 0:
+        unrealized_usd += trade['tokens'] * price
       else:
         unrealized_usd += trade['invested_usd']
     except:
@@ -228,11 +378,11 @@ def send_hourly_report():
       f'-----------------------------------\n'
       f'💰 *رأس المال الحالي:* {total_equity_sar:.2f} ريال (${total_equity_usd:.2f})\n'
       f'📈 *صافي الأرباح/الخسائر:* {pnl_sar:+.2f} ريال ({pnl_pct:+.2f}%)\n'
-      f'🔄 *الصفقات المفتوحة حالياً:* {len(active_trades)}/{MAX_CONCURRENT_TRADES}\n'
-      f'✅ *إجمالي الصفقات المغلقة:* {total_closed} (ناجحة: {wins} | خاسرة: {total_closed - wins})\n'
+      f'🔄 *الصفقات المفتوحة:* {len(active_trades)}/{MAX_CONCURRENT_TRADES}\n'
+      f'✅ *الصفقات المغلقة:* {total_closed} (ناجحة: {wins} | خاسرة: {total_closed - wins})\n'
       f'🎯 *نسبة النجاح:* {win_rate:.1f}%\n'
       f'-----------------------------------\n'
-      f'🟢 *رادار القنص اللحظي للإطلاقات الجديدة يعمل 24/7*'
+      f'🟢 *البوت يعمل بمراقبة Raydium والسيولة الحية 24/7*'
   )
   send_telegram_alert(report)
 
@@ -243,9 +393,8 @@ if __name__ == 'main' or __name__ == '__main__':
   server_thread.start()
 
   welcome_msg = (
-      '🚀 *تم تشغيل بوت قنص الميم كوين (Latest Tokens Sniper) بنجاح!*\n'
-      '💰 *رأس المال المبدئي:* 1,000 ريال سعودي\n'
-      '⏰ سيقنص العملات فور ولادتها ويراسلك بكل جديد.'
+      '🚀 *تم تشغيل بوت قنص الميم كوين (المرحلة الثانية) بنجاح!*\n'
+      '⭐ *المميزات:* مراقبة أزواج Raydium، نظام النقاط الشامل، الحفظ الآمن.'
   )
   send_telegram_alert(welcome_msg)
 
@@ -263,4 +412,4 @@ if __name__ == 'main' or __name__ == '__main__':
     except Exception as e:
       print(f'⚠️ خطأ رئيسي: {e}')
 
-    time.sleep(15)
+    time.sleep(10)
