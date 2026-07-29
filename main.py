@@ -19,11 +19,11 @@ def start_server():
   app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# 2️⃣ إعدادات التليجرام (التوكن الجديد)
+# 2️⃣ إعدادات التليجرام (بوت الميم كوينز)
 TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
-# 3️⃣ إدارة المحفظة الوهمية للميم كوينز
+# 3️⃣ إدارة المحفظة الوهمية
 USD_TO_SAR = 3.75
 INITIAL_BALANCE_SAR = 1000.0
 INITIAL_BALANCE_USD = INITIAL_BALANCE_SAR / USD_TO_SAR
@@ -49,7 +49,7 @@ def send_telegram_alert(message, target_chat_id=None):
 
 
 def scan_solana_meme_coins():
-  """رصد الميم كوينز الحقيقية على شبكة Solana مع استبعاد العملة الأم SOL"""
+  """رصد الميم كوينز الحقيقية حصرياً مع حجب قاطع لعملة SOL والعملات الكبرى"""
   try:
     url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
     res = requests.get(url, timeout=10)
@@ -57,21 +57,23 @@ def scan_solana_meme_coins():
       pairs = res.json().get('pairs', [])
       meme_opportunities = []
 
-      for pair in pairs[:40]:
+      for pair in pairs[:50]:
         if pair.get('chainId') != 'solana':
           continue
 
-        symbol = pair.get('baseToken', {}).get('symbol', 'UNKNOWN').upper()
+        token_info = pair.get('baseToken', {})
+        symbol = str(token_info.get('symbol', 'UNKNOWN')).upper()
+        name = str(token_info.get('name', '')).upper()
 
-        # استبعاد عملة سولانا الأم والعملات المستقرة لمنع الخسائر المتكررة
-        if symbol in ['SOL', 'USDC', 'USDT', 'WBTC']:
+        # حجب قاطع لعملة SOL والعملات المشهورة لتجنب الخسائر
+        excluded_tokens = ['SOL', 'WSOL', 'USDC', 'USDT', 'WBTC', 'ETH']
+        if symbol in excluded_tokens or 'SOLANA' in name:
           continue
 
         volume_24h = float(pair.get('volume', {}).get('h24', 0) or 0)
         liquidity_usd = float(pair.get('liquidity', {}).get('usd', 0) or 0)
 
-        # شروط مرنة وأمنة لميم كوينز صاعدة
-        if liquidity_usd >= 5000 and volume_24h >= 10000:
+        if liquidity_usd >= 4000 and volume_24h >= 8000:
           meme_opportunities.append({
               'symbol': symbol,
               'price': float(pair.get('priceUsd', 0) or 0),
@@ -84,11 +86,6 @@ def scan_solana_meme_coins():
 
 def check_and_execute_meme_trades():
   global balance_usd
-
-  print(
-      f'[{datetime.now().strftime("%H:%M:%S")}] 🔍 Scanning Solana Meme'
-      ' Coins...'
-  )
 
   if len(active_trades) >= MAX_CONCURRENT_TRADES:
     return
@@ -182,49 +179,13 @@ def update_meme_trades():
       print(f'❌ خطأ: {e}')
 
 
-def handle_telegram_updates():
-  """الاستماع لأوامر التليجرام والرد على المستخدم مباشرة"""
-  last_update_id = 0
-  global CHAT_ID
-
-  while True:
-    try:
-      url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5'
-      res = requests.get(url, timeout=10)
-      if res.status_code == 200:
-        updates = res.json().get('result', [])
-        for update in updates:
-          last_update_id = update['update_id']
-          message = update.get('message', {})
-          text = message.get('text', '')
-          user_chat_id = message.get('chat', {}).get('id')
-
-          if text == '/start' and user_chat_id:
-            CHAT_ID = str(user_chat_id)
-            welcome_msg = (
-                '🎯 *أهلاً بك! تم تفعيل بوت صيد الميم كوينز (Solana Radar)*\n'
-                f'🆔 *معرف الحساب المقترن:* `{user_chat_id}`\n'
-                '💰 *رأس المال:* 1,000 ريال سعودي ($266.67 USD)\n'
-                '⚡ السيرفر شغال الآن 24/7 وستصلك الصفقات هنا فور رصدها تلقائياً!'
-            )
-            send_telegram_alert(welcome_msg, target_chat_id=user_chat_id)
-    except Exception as e:
-      pass
-    time.sleep(3)
-
-
 if __name__ == '__main__':
   # 1. تشغيل سيرفر Flask
   server_thread = Thread(target=start_server)
   server_thread.daemon = True
   server_thread.start()
 
-  # 2. تشغيل معالج رسائل التليجرام في الخلفية
-  tg_thread = Thread(target=handle_telegram_updates)
-  tg_thread.daemon = True
-  tg_thread.start()
-
-  # 3. الحلقة الرئيسية لرصد وتداول الميم كوينز
+  # 2. الحلقة الرئيسية لرصد الميم كوينز
   while True:
     check_and_execute_meme_trades()
     update_meme_trades()
