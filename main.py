@@ -1,7 +1,7 @@
-import os
-import time
 from datetime import datetime
+import os
 from threading import Thread
+import time
 from flask import Flask
 import requests
 
@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-  return 'Solana Meme Radar Bot is Running 24/7!', 200
+  return 'Solana Meme Radar Bot (Smart Strategy) is Running 24/7!', 200
 
 
 def start_server():
@@ -23,7 +23,7 @@ def start_server():
 TELEGRAM_BOT_TOKEN = '8596265665:AAEdjiNIHoA6D-oFmr_iCsaBbomwcdhqgp0'
 CHAT_ID = '1015963752'
 
-# 3️⃣ إدارة المحفظة الوهمية
+# 3️⃣ إدارة المحفظة الوهمية ونطاق الصفقات الناجحة
 USD_TO_SAR = 3.75
 INITIAL_BALANCE_SAR = 1000.0
 INITIAL_BALANCE_USD = INITIAL_BALANCE_SAR / USD_TO_SAR
@@ -49,7 +49,7 @@ def send_telegram_alert(message, target_chat_id=None):
 
 
 def scan_solana_meme_coins():
-  """رصد الميم كوينز الحقيقية حصرياً مع حجب قاطع لعملة SOL والعملات الكبرى"""
+  """رصد الميم كوينز بناءً على استراتيجية الصفقات الناجحة (نطاق القيمة السوقية المبكرة)"""
   try:
     url = 'https://api.dexscreener.com/latest/dex/search?q=solana'
     res = requests.get(url, timeout=10)
@@ -65,19 +65,23 @@ def scan_solana_meme_coins():
         symbol = str(token_info.get('symbol', 'UNKNOWN')).upper()
         name = str(token_info.get('name', '')).upper()
 
-        # حجب قاطع لعملة SOL والعملات المشهورة لتجنب الخسائر
+        # حجب العملات الكبرى
         excluded_tokens = ['SOL', 'WSOL', 'USDC', 'USDT', 'WBTC', 'ETH']
         if symbol in excluded_tokens or 'SOLANA' in name:
           continue
 
         volume_24h = float(pair.get('volume', {}).get('h24', 0) or 0)
         liquidity_usd = float(pair.get('liquidity', {}).get('usd', 0) or 0)
+        market_cap = float(
+            pair.get('marketCap', pair.get('fdv', 0)) or 0
+        )  # القيمة السوقية
+        price = float(pair.get('priceUsd', 0) or 0)
 
-        if liquidity_usd >= 4000 and volume_24h >= 8000:
-          meme_opportunities.append({
-              'symbol': symbol,
-              'price': float(pair.get('priceUsd', 0) or 0),
-          })
+        # 🎯 الشروط المستوحاة من الصفقات الناجحة: القيمة السوقية بين $30K و $70K
+        if 30000 <= market_cap <= 70000 and volume_24h >= 40000:
+          meme_opportunities.append(
+              {'symbol': symbol, 'price': price, 'market_cap': market_cap}
+          )
       return meme_opportunities
   except Exception as e:
     print(f'❌ خطأ جلب الميم كوينز: {e}')
@@ -95,6 +99,7 @@ def check_and_execute_meme_trades():
   for opp in opportunities:
     symbol = opp['symbol']
     price = opp['price']
+    market_cap = opp['market_cap']
 
     if price <= 0 or symbol in active_trades:
       continue
@@ -106,8 +111,8 @@ def check_and_execute_meme_trades():
     balance_usd -= trade_amount_usd
     tokens = trade_amount_usd / price
 
-    tp_price = price * 1.03
-    sl_price = price * 0.985
+    tp_price = price * 1.05  # هدف 5% كبداية آمنة وممتازة
+    sl_price = price * 0.98  # وقف خسارة 2%
 
     active_trades[symbol] = {
         'entry_price': price,
@@ -118,13 +123,14 @@ def check_and_execute_meme_trades():
     }
 
     msg = (
-        f'🔥 *صفقة ميم كوين جديدة (Solana Radar)*\n'
+        f'🔥 *صفقة ميم كوين استراتيجية جديدة (استراتيجية الصفقات الناجحة)*\n'
         f'-----------------------------------\n'
         f'🪙 *العملة:* `${symbol}`\n'
+        f'📊 *القيمة السوقية لحظة الدخول (MC):* `${market_cap:,.0f}`\n'
         f'💵 *سعر الشراء:* `${price:,.6f}`\n'
         f'💰 *المبلغ المستثمر:* `${trade_amount_usd:.2f}` ({trade_amount_usd * USD_TO_SAR:.1f} ريال)\n'
-        f'🎯 *الهدف (TP):* `${tp_price:,.6f}` (+3.0%)\n'
-        f'🛑 *وقف الخسارة (SL):* `${sl_price:,.6f}` (-1.5%)\n'
+        f'🎯 *الهدف (TP):* `${tp_price:,.6f}` (+5.0%)\n'
+        f'🛑 *وقف الخسارة (SL):* `${sl_price:,.6f}` (-2.0%)\n'
         f'💼 *الرصيد المتبقي:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
     )
     send_telegram_alert(msg)
@@ -154,7 +160,7 @@ def update_meme_trades():
           balance_usd += return_usd
 
           msg = (
-              f'🚀 *تم تحقيق الهدف! (+3%)*\n'
+              f'🚀 *تم تحقيق الهدف بنجاح! (+5%)*\n'
               f'🪙 *العملة:* `${symbol}`\n'
               f'💰 *الربح:* `+${pnl_usd:.2f}` (`+{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
               f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
@@ -168,7 +174,7 @@ def update_meme_trades():
           balance_usd += return_usd
 
           msg = (
-              f'🛑 *ضرب وقف الخسارة! (-1.5%)*\n'
+              f'🛑 *ضرب وقف الخسارة! (-2%)*\n'
               f'🪙 *العملة:* `${symbol}`\n'
               f'📉 *الخسارة:* `${pnl_usd:.2f}` (`{pnl_usd * USD_TO_SAR:.1f}` ريال)\n'
               f'💼 *الرصيد الجديد:* `${balance_usd:.2f}` ({balance_usd * USD_TO_SAR:.1f} ريال)'
@@ -179,7 +185,7 @@ def update_meme_trades():
       print(f'❌ خطأ: {e}')
 
 
-if __name__ == '__main__':
+if __name__ == 'main' or __name__ == '__main__':
   # 1. تشغيل سيرفر Flask
   server_thread = Thread(target=start_server)
   server_thread.daemon = True
@@ -187,6 +193,9 @@ if __name__ == '__main__':
 
   # 2. الحلقة الرئيسية لرصد الميم كوينز
   while True:
-    check_and_execute_meme_trades()
-    update_meme_trades()
+    try:
+      check_and_execute_meme_trades()
+      update_meme_trades()
+    except Exception as e:
+      print(f'⚠️ خطأ رئيسي: {e}')
     time.sleep(15)
