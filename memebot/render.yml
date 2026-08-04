@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: memecoin-scanner-bot
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -w 1 -k gthread --threads 4 -b 0.0.0.0:$PORT memebot:app"
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: ETHERSCAN_API_KEY
+        sync: false
+      - key: BSCSCAN_API_KEY
+        sync: false
+      - key: BASESCAN_API_KEY
+        sync: false
